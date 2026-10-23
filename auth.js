@@ -3,7 +3,7 @@ const config=window.MEXROUTE_CONFIG;
 const client=createClient(config.url,config.key);
 const $=s=>document.querySelector(s);
 const screen=$('#authScreen'),status=$('#authStatus'),login=$('#googleLogin');
-const cash=n=>Number(n||0).toLocaleString('es-MX',{style:'currency',currency:'MXN'});
+const cash=n=>n===null||n===undefined||n===''?'Sin dato':Number.isFinite(Number(n))?Number(n).toLocaleString('es-MX',{style:'currency',currency:'MXN'}):'Error en origen ('+String(n)+')';
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let user,profile,routes=[],fuel=[];
 login.onclick=async()=>{login.disabled=true;status.textContent='Abriendo Google…';const{error}=await client.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin}});if(error){status.textContent=error.message;login.disabled=false}};
