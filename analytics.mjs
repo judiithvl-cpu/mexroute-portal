@@ -13,6 +13,8 @@ export function fuelSummary(rows) {
 }
 export function operationAlerts({routes, fuel, evidences}, date) {
   const alerts = [];
+  if (fuel.some(payment => /^QA (PRUEBA|RECHAZO) - NO OPERATIVO$/.test(payment.station || '')))
+    alerts.push({view:'gasolina', text:'Hay cargas marcadas como prueba NO OPERATIVO. Los totales incluyen esos registros: revisarlos antes de usarlos para contabilidad. No se eliminan automáticamente.'});
   for (const route of routes) {
     if (['assigned', 'in_progress'].includes(route.status) && route.scheduled_at < date)
       alerts.push({view:'rutas', text:`Ruta ${route.route_code}: fecha vencida y aún ${route.status === 'assigned' ? 'sin iniciar' : 'en curso'}.`});
