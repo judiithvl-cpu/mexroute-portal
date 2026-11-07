@@ -30,7 +30,7 @@ export function summarizeWeek({routes, costs, fuel}) {
   return units;
 }
 
-export function setupFleet({client, admin, today, $, field, table, options, submit, write, notify, run, labels, categories, cash, state}) {
+export function setupFleet({client, admin, today, $, field, table, options, submit, write, notify, run, labels, categories, cash, refresh, state}) {
   let people = [], assignments = [], loaded = false, request = 0;
   const date = $('#weekStart');
   date.value = monday(today());
@@ -38,6 +38,13 @@ export function setupFleet({client, admin, today, $, field, table, options, subm
   const route = $('#routeForm'), cost = $('#costForm'), fuel = $('#fuelForm');
   const fleetForm = $('#fleetAssignment');
   const legacyCost = $('#legacyCostForm');
+  const historyForm = $('#fleetHistoryForm');
+  const historyFile = field(historyForm,'file');
+  const historyPlate = field(historyForm,'plate');
+  const historyAccount = field(historyForm,'email');
+  const historyButton = historyForm.querySelector('button');
+  const historyStatus = $('#fleetHistoryStatus');
+  let historyBatch = null, historyRead = 0, importing = false;
   const driverAccounts = () => people.filter(person => person.active && person.role === 'driver');
   const title = person => person.full_name ? person.full_name + ' · ' + person.email : person.email;
   const assignment = vehicle => assignments.find(item => item.vehicle_id === vehicle)?.account_email;
@@ -47,6 +54,72 @@ export function setupFleet({client, admin, today, $, field, table, options, subm
     const {data,error} = await client.rpc(name, params);
     if (error) throw error;
     return data;
+  };
+
+  function renderImport() {
+    const rows = historyBatch?.candidates.filter(row => row.plate === historyPlate.value) || [];
+    const currentUnit = state().vehicles.find(unit => unit.plate === historyPlate.value);
+    const currentAccount = currentUnit && assignment(currentUnit.id);
+    const validAccount = driverAccounts().some(person => person.email === historyAccount.value);
+    historyButton.disabled = importing || !rows.length || !validAccount || Boolean(currentAccount && currentAccount !== historyAccount.value);
+    $('#fleetHistoryPreview').replaceChildren();
+    if (!rows.length) {
+      historyStatus.textContent = 'Selecciona un archivo preparado y una placa.';
+      return;
+    }
+    const total = rows.reduce((sum,row) => sum + Math.round(Number(row.amount_mxn) * 100),0);
+    historyStatus.textContent = rows.length + ' cargas · ' + cash(total/100) +
+      (currentAccount ? ' · Cuenta actual: ' + currentAccount : ' · La unidad se asignará a la cuenta elegida.') +
+      (currentAccount && validAccount && currentAccount !== historyAccount.value ? ' Selecciona la cuenta actual para importar.' : '');
+    table($('#fleetHistoryPreview'),['Fecha','Litros','Importe','Fila de origen'],
+      rows.map(row => [row.date,row.liters,cash(row.amount_mxn),row.row]));
+  }
+
+  historyFile.onchange = async () => {
+    const read = ++historyRead;
+    historyBatch = null;
+    options(historyPlate,[],'plate',row=>row.plate,'Selecciona una placa');
+    renderImport();
+    const file = historyFile.files[0];
+    if (!file) return;
+    try {
+      if (file.size > 2_000_000) throw new Error('Usa el archivo JSON preparado para la importación.');
+      const parsed = JSON.parse(await file.text());
+      if (read !== historyRead) return;
+      if (parsed?.purpose !== 'historical_fuel_review_only' || !/^[a-f0-9]{64}$/.test(parsed.source_sha256) ||
+          !Array.isArray(parsed.candidates) || !parsed.candidates.length ||
+          !parsed.candidates.every(row => row && /^[A-Z0-9-]{4,15}$/.test(row.plate) &&
+            Number.isInteger(row.row) && row.row > 1 && /^\d{4}-\d{2}-\d{2}$/.test(row.date) &&
+            Number(row.amount_mxn)>0 && Number(row.liters)>0)) {
+        throw new Error('El archivo no tiene el formato de combustible histórico.');
+      }
+      historyBatch = parsed;
+      options(historyPlate,[...new Set(parsed.candidates.map(row => row.plate))].sort().map(plate => ({plate})),
+        'plate',row=>row.plate,'Selecciona una placa');
+      historyStatus.textContent = parsed.candidates.length + ' cargas disponibles. Selecciona una placa.';
+    } catch (error) {
+      if (read === historyRead) historyStatus.textContent = error.message;
+    }
+  };
+  historyPlate.onchange = historyAccount.onchange = renderImport;
+  historyForm.onsubmit = event => {
+    event.preventDefault();
+    run(historyButton,async () => {
+      if (!admin() || !historyBatch) return;
+      importing = true;
+      const plate = historyPlate.value, email = historyAccount.value;
+      const rows = historyBatch.candidates.filter(row => row.plate === plate)
+        .map(({plate,row,date,amount_mxn,liters}) => ({plate,row,date,amount_mxn,liters}));
+      const count = await rpc('admin_import_historical_fuel',{
+        p_plate:plate,p_email:email,p_source_hash:historyBatch.source_sha256,p_rows:rows
+      });
+      notify(count ? 'Se importaron ' + count + ' cargas para ' + plate + '.' : 'Las cargas ya estaban importadas.');
+      await refresh();
+      await loadAdmin();
+    }).finally(() => {
+      importing = false;
+      renderImport();
+    });
   };
 
   function routeUnits() {
@@ -67,6 +140,8 @@ export function setupFleet({client, admin, today, $, field, table, options, subm
     const active = driverAccounts();
     options(field(route,'driver'),active.filter(person => person.user_id),'user_id',title,'Selecciona una cuenta que ya ingresó');
     options(field(fleetForm,'email'),active,'email',title,'Selecciona una cuenta');
+    options(historyAccount,active,'email',title,'Selecciona una cuenta');
+    renderImport();
     options(field(fleetForm,'vehicle'),state().vehicles.filter(unit => unit.active),'id',plate,'Selecciona una unidad');
     options(field(cost,'vehicle'),availableUnits(),'id',unit => plate(unit) + ' · ' + assignment(unit.id),'Selecciona una unidad');
     options(field(legacyCost,'vehicle'),availableUnits(),'id',unit => plate(unit) + ' · ' + assignment(unit.id),'Selecciona una unidad');
@@ -97,7 +172,7 @@ export function setupFleet({client, admin, today, $, field, table, options, subm
     const selected = date.value;
     const email = admin() ? account.value : null;
     const message = $('#weekMessage');
-    const details = ['#weekTotals','#weekRoutes','#weekCosts','#weekFuel'];
+    const details = ['#weekTotals','#weekRoutes','#weekCosts','#weekFuel','#weekHistoricalFuel'];
     for (const selector of details) $(selector).replaceChildren();
     if (admin() && !email) {
       message.textContent = 'Selecciona la cuenta que quieres consultar.';
@@ -108,9 +183,10 @@ export function setupFleet({client, admin, today, $, field, table, options, subm
       return;
     }
     message.textContent = 'Consultando semana…';
-    let data;
+    let data, historicalFuel;
     try {
-      data = await rpc('fleet_week',{p_start:selected,p_email:email});
+      const params = {p_start:selected,p_email:email};
+      [data,historicalFuel] = await Promise.all([rpc('fleet_week',params),rpc('fleet_week_historical_fuel',params)]);
     } catch (error) {
       if (current !== request) return;
       message.textContent = 'No se pudo consultar la semana. Usa Actualizar semana para reintentar.';
@@ -118,7 +194,9 @@ export function setupFleet({client, admin, today, $, field, table, options, subm
     }
     if (current !== request) return;
     const totals = summarizeWeek(data);
-    message.textContent = totals.size ? 'La tarifa de ruta, los gastos, la gasolina y los pagos registrados se muestran por separado.' : 'No hay movimientos vinculados en esta semana.';
+    message.textContent = totals.size || historicalFuel.length ? 'La tarifa de ruta, los gastos, la gasolina y los pagos registrados se muestran por separado.' : 'No hay movimientos vinculados en esta semana.';
+    if (historicalFuel.length) table($('#weekHistoricalFuel'),['Fecha','Unidad','Litros','Importe histórico'],
+      historicalFuel.map(row => [row.date,row.plate,row.liters,cash(row.amount)]));
     if (!totals.size) return;
     const sum = {completed:0,routes:0,operator:0,gps:0,administration:0,other:0,approved:0,submitted:0,paid:0};
     const columns = Object.keys(sum);

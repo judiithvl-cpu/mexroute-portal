@@ -71,7 +71,7 @@ function configureAccess(){
 }
 $('#financeCards').insertAdjacentHTML('beforebegin','<div class="summary-controls"><label>Desde<input id="summaryStart" type="date"></label><label>Hasta<input id="summaryEnd" type="date"></label><button id="clearPeriod" type="button">Todos los periodos</button><button id="exportFuel" type="button">Exportar gasolina CSV</button></div><p id="periodMessage" class="feedback"></p>');
 $('#financeCards').insertAdjacentHTML('afterend','<h2>Alertas de operación</h2><article id="operationAlerts" class="operation-alerts"></article><h2>Rutas y registros vinculados</h2><p>Rutas según el periodo seleccionado. La gasolina y las evidencias muestran todos los registros vinculados a cada ruta, aunque se capturaran después.</p><article id="routeConnections"></article><p id="syncStatus" role="status"></p>');
-const fleet=setupFleet({client,admin,today,$,field,table,options,submit,write,notify,run,labels,categories,cash,state:()=>state});
+const fleet=setupFleet({client,admin,today,$,field,table,options,submit,write,notify,run,labels,categories,cash,refresh,state:()=>state});
 $('#historyRows').insertAdjacentHTML('beforebegin','<h2>Combustible histórico por unidad y mes</h2><p>Importe neto y litros de las filas de origen, sin sumar acumulados. Neto/L usa solamente cargas con ambos datos. No es una comparación directa con el importe capturado en la operación nueva.</p><p id="historyQuality" class="feedback">El histórico se carga al abrir esta sección.</p><article id="historySummary"></article><h2>Detalle de origen</h2>');
 $('#summaryStart').value=today().slice(0,7)+'-01';$('#summaryEnd').value=today();
 $('#summaryStart').onchange=renderInsights;$('#summaryEnd').onchange=renderInsights;
